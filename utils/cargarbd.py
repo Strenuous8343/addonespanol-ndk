@@ -19,11 +19,12 @@ from config import (
     DB_ENCRYPTED_PATH,
     DB_DECRYPTED_PATH,
     VERSION_FILE,
+    DB_PATH_PREFIX
 )
 
 logger = setup_logger(__name__)
 
-BASE_DIR = "."
+BASE_DIR = DB_PATH_PREFIX
 REPO_URL = 'https://github.com/Maniac2017/Mipal2025.git'
 REPO_DIR = os.path.join(BASE_DIR, 'Mipal2025-main')
 VERSION_FILE = os.path.join(REPO_DIR, 'version.txt')
