@@ -26,6 +26,6 @@ VERSION_FILE = os.path.join(WORKING_PATH, "version.txt")
 
 
 PING_URL = 'https://addonespanol.onrender.com/'
-RENDER_API_URL = "https://api.render.com/v1/services/srv-csr7761u0jms73cjf0t0/deploys"
+RENDER_API_URL = os.getenv("RENDER_DEPLOY_HOOK")
 RENDER_AUTH_HEADER = f"Bearer {os.getenv('RENDER_API_KEY')}"
 
