@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from utils.fichier import copy_file
 from utils.logger import setup_logger
 from config import DB_DECRYPTED_PATH, DB_ENCRYPTED_PATH
+import os
 
 
 logger = setup_logger(__name__)
@@ -58,6 +59,7 @@ def add_flag(db_path=DB_ENCRYPTED_PATH):
     """
     logger.info("Configurando la base de datos: comprobando columnas e índices...")
     logger.info(f"Ruta de la base de datos: {db_path}")
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     try:

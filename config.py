@@ -15,12 +15,14 @@ ADMIN_PATH_DB_DECRYPTED = os.getenv("ADMIN_PATH_DB_DECRYPTED")
 ADMIN_PATH_RESTART = os.getenv("ADMIN_PATH_RESTART")
 
 # --- Constantes de archivos y URLs ---
-DB_PATH_PREFIX = "/tmp/" if not IS_DEV else ""
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH_PREFIX = "tmp" if not IS_DEV else ""
+WORKING_PATH = os.path.join(BASE_DIR, DB_PATH_PREFIX)
 
-DB_ENCRYPTED_PATH = f"{DB_PATH_PREFIX}MiPal2025-main/92b33381-pl3-42a1-bee0-bbb9d132e83f.tmp"
-DB_DECRYPTED_PATH = f"{DB_PATH_PREFIX}MiPal2025-main/bd.tmp"
-UPDATE_LOG_FILE = f"{DB_PATH_PREFIX}actualizar.txt"
-VERSION_FILE = f"{DB_PATH_PREFIX}version.txt"
+DB_ENCRYPTED_PATH = os.path.join(WORKING_PATH, "Mipal2025-main", "92b33381-pl3-42a1-bee0-bbb9d132e83f.tmp")
+DB_DECRYPTED_PATH = os.path.join(WORKING_PATH, "Mipal2025-main", "bd.tmp")
+UPDATE_LOG_FILE = os.path.join(WORKING_PATH, "actualizar.txt")
+VERSION_FILE = os.path.join(WORKING_PATH, "version.txt")
 
 
 PING_URL = 'https://addonespanol.onrender.com/'

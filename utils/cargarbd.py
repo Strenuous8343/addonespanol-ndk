@@ -91,12 +91,12 @@ def add_flag_to_inserts(up_content):
         str: El script SQL modificado.
     """
     pattern = r"(INSERT OR REPLACE INTO (enlaces_pelis|enlaces_series)[^;]*\);)"
-    def add_flag(match):
+    def _add_flag(match):
         original = match.group(0)
         if original.endswith(");"):
             return original[:-2] + ", 0, '');"
         return original
-    return re.sub(pattern, add_flag, up_content)
+    return re.sub(pattern, _add_flag, up_content)
 
 def p3b64decode_exacto(encoded_text):
     """
