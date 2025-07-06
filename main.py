@@ -1,12 +1,14 @@
 import asyncio
 import json
 import os
+import sys
 import re
 import aiosqlite
 import time
 from datetime import datetime
 import asyncio
 import shutil
+import subprocess
 
 
 import fakeredis
@@ -20,7 +22,7 @@ from starlette import status
 
 from debrid.get_debrid_service import get_debrid_service
 from metadata.tmdb import TMDB
-from utils.actualizarbd import actualizarbasesdatos
+from utils.actualizarbd import comprobar_actualizacion_contenido, comprobar_actualizacion_addon
 from utils.bd import (setup_index, getGood1fichierlink,
                       search_movies, search_tv_shows)
 from utils.cargarbd import check_and_download
@@ -355,12 +357,38 @@ async def head_playback():
 
 # --- Tareas Programadas (Crons) y Rutas de Administración ---
 
+def reiniciar_aplicacion_local():
+    """
+    Inicia una nueva instancia de la aplicación y cierra la actual.
+    Funciona reconstruyendo el comando con el que se lanzó originalmente.
+    """
+    logger.info("Iniciando el proceso de auto-reinicio...")
+    comando = [sys.executable] + sys.argv
+
+    subprocess.Popen(comando, creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+    sys.exit(0)
+
+
 @crontab("*/5 * * * *", start=not IS_DEV)
 async def actualizar_bd():
-    """Tarea programada para actualizar la base de datos cada 5 minutos."""
-    if await actualizarbasesdatos():
-        with open(UPDATE_LOG_FILE, 'a') as file:
-            file.write(f"{datetime.now()}: Actualizando contenido...\n")
+    """
+    Comprueba periódicamente si hay actualizaciones tanto en el código del addon
+    como en el contenido de la base de datos.
+    """
+    logger.info("Iniciando comprobación periódica de actualizaciones (código y contenido)...")
+    
+    resultados = await asyncio.gather(
+        comprobar_actualizacion_contenido(),
+        comprobar_actualizacion_addon()
+    )
+    
+    if any(resultados):
+        logger.info("Se ha detectado una actualización. Procediendo a reiniciar la aplicación.")
+        reiniciar_aplicacion_local()
+    else:
+        logger.info("No se encontraron nuevas actualizaciones en ninguno de los repositorios.")
+
 
 
 @app.get("/fecha")
