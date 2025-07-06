@@ -64,7 +64,7 @@ def parse_to_debrid_stream(stream_list: list, config, media, nombre_debrid, fich
 
         if config.get('debrid'):
             spacer = "\u2800" * 5
-            title = f"[RD+ ✅] NDK{spacer} {resolution}"
+            title = f"{addon_title} NDK{spacer} {resolution}"
             entry = {
                 "name": title,
                 "url": link['playback'],
