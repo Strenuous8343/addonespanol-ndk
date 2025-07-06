@@ -2,22 +2,26 @@ import subprocess
 import json
 import os
 import sys
-from getpass import getpass
 
 _secrets = None
 
 def load_secrets():
     """
-    Solicita la clave privada de age, descifra secrets.json usando sops
-    y carga los secretos en una variable global en memoria.
+    Carga la clave privada de age desde la variable de entorno SOPS_AGE_KEY,
+    descifra secrets.json usando sops y carga los secretos en memoria.
     """
     global _secrets
     if _secrets is not None:
         return _secrets
 
-    try:
-        age_key = getpass("Introduce la clave privada de AGE (SOPS_AGE_KEY): ")
+    age_key = os.environ.get("SOPS_AGE_KEY")
 
+    if not age_key:
+        print("❌ Error: La variable de entorno 'SOPS_AGE_KEY' no está definida.", file=sys.stderr)
+        print("Este script debe ser ejecutado a través de 'start.py'.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
         env = os.environ.copy()
         env["SOPS_AGE_KEY"] = age_key.strip()
 
@@ -32,22 +36,12 @@ def load_secrets():
         _secrets = json.loads(result.stdout)
         print("✅ Secretos cargados en memoria correctamente.")
         return _secrets
+    except Exception as e:
+        print(f"❌ Ocurrió un error al cargar los secretos: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    except FileNotFoundError:
-        print("❌ Error: El comando 'sops' no se encontró. Asegúrate de que esté instalado y en el PATH.", file=sys.stderr)
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error al descifrar los secretos. Clave incorrecta o archivo corrupto.", file=sys.stderr)
-        print(e.stderr, file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError:
-        print("❌ Error: No se pudo decodificar el JSON de los secretos descifrados.", file=sys.stderr)
-        sys.exit(1)
 
 def get_secret(key, default=None):
-    """
-    Obtiene un secreto específico del diccionario cargado en memoria.
-    """
     if _secrets is None:
-        raise Exception("Los secretos no han sido cargados. Llama a load_secrets() primero.")
+        load_secrets()
     return _secrets.get(key, default)
