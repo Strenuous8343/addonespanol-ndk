@@ -2,9 +2,10 @@ import os
 import sqlite3
 import base64
 from Crypto.Cipher import AES
+from config import ENCRYPTION_KEY_B64
 
 # Cargar la cadena Base64 desde las variables de entorno
-ENCRYPTION_KEY_B64 = os.getenv('ENCRYPTION_KEY_B64').encode('utf-8')
+ENCRYPTION_KEY_B64 = ENCRYPTION_KEY_B64.encode('utf-8')
 DECODED_KEY = base64.b64decode(ENCRYPTION_KEY_B64)
 
 # Separar IV y clave

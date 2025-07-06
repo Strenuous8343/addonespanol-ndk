@@ -19,7 +19,8 @@ from config import (
     DB_ENCRYPTED_PATH,
     DB_DECRYPTED_PATH,
     VERSION_FILE,
-    DB_PATH_PREFIX
+    DB_PATH_PREFIX,
+    ZIP_DECODE_BASE64
 )
 
 logger = setup_logger(__name__)
@@ -61,7 +62,7 @@ def download_and_process_file(url_or_path):
         response.raise_for_status()
         content = response.content
 
-    zip_header_b64 = os.getenv('ZIP_DECODE_BASE64')
+    zip_header_b64 = ZIP_DECODE_BASE64
     decoded_data = base64.b64decode(zip_header_b64) + content
     
     with zipfile.ZipFile(io.BytesIO(decoded_data), 'r') as zfile:

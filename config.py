@@ -1,18 +1,24 @@
 import os
-from dotenv import load_dotenv
+from utils.secrets_loader import load_secrets, get_secret
 
 # --- Constantes de configuración ---
-load_dotenv()
+load_secrets()
 
 VERSION = "1.0.0"
 IS_DEV = os.getenv("NODE_ENV") == "development"
 IS_COMMUNITY_VERSION = os.getenv("IS_COMMUNITY_VERSION") == "true"
-ROOT_PATH = os.environ.get("ROOT_PATH", "")
-DEBRID_API_KEY = os.getenv('DEBRID_API_KEY')
 
-ADMIN_PATH_DB_ENCRYPTED = os.getenv("ADMIN_PATH_DB_ENCRYPTED")
-ADMIN_PATH_DB_DECRYPTED = os.getenv("ADMIN_PATH_DB_DECRYPTED")
-ADMIN_PATH_RESTART = os.getenv("ADMIN_PATH_RESTART")
+ROOT_PATH = os.environ.get("ROOT_PATH", "")
+
+DEBRID_API_KEY = get_secret('DEBRID_API_KEY')
+FICHIER_API_KEY = get_secret('FICHIER_API_KEY')
+ENCRYPTION_KEY_B64 = get_secret('ENCRYPTION_KEY_B64')
+ZIP_DECODE_BASE64 = get_secret('ZIP_DECODE_BASE64')
+ADMIN_PATH_DB_ENCRYPTED = get_secret("ADMIN_PATH_DB_ENCRYPTED")
+ADMIN_PATH_DB_DECRYPTED = get_secret("ADMIN_PATH_DB_DECRYPTED")
+ADMIN_PATH_RESTART = get_secret("ADMIN_PATH_RESTART")
+RENDER_API_KEY = get_secret('RENDER_API_KEY')
+RENDER_DEPLOY_HOOK = get_secret("RENDER_DEPLOY_HOOK")
 
 # --- Constantes de archivos y URLs ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +32,6 @@ VERSION_FILE = os.path.join(WORKING_PATH, "version.txt")
 
 
 PING_URL = 'https://addonespanol.onrender.com/'
-RENDER_API_URL = os.getenv("RENDER_DEPLOY_HOOK")
-RENDER_AUTH_HEADER = f"Bearer {os.getenv('RENDER_API_KEY')}"
+RENDER_API_URL = RENDER_DEPLOY_HOOK
+RENDER_AUTH_HEADER = f"Bearer {RENDER_API_KEY}"
 

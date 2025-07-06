@@ -3,6 +3,7 @@ import httpx
 import random
 import string
 from utils.logger import setup_logger
+from config import FICHIER_API_KEY
 
 logger = setup_logger(__name__)
 
@@ -11,7 +12,7 @@ def generate_guid(length=10):
 
 async def get_file_info(http_client: httpx.AsyncClient, url: str):
     info_url = "https://api.1fichier.com/v1/file/info.cgi"
-    api_key = os.getenv('FICHIER_API_KEY')
+    api_key = FICHIER_API_KEY
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     data = {"url": url}
 
@@ -26,7 +27,7 @@ async def get_file_info(http_client: httpx.AsyncClient, url: str):
 
 async def copy_file(http_client: httpx.AsyncClient, url: str, rename=None, _retry=False):
     cp_url = "https://api.1fichier.com/v1/file/cp.cgi"
-    api_key = os.getenv('FICHIER_API_KEY')
+    api_key = FICHIER_API_KEY
     new_filename = rename[:rename.rfind('.')] + generate_guid() if rename else generate_guid()
     
     logger.debug(f"Nuevo nombre de archivo: {new_filename}")
