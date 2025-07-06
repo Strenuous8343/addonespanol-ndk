@@ -97,7 +97,7 @@ def detect_languages(torrent_name):
 
     return languages
 
-def post_process_results(link, media, debrid_service, url, result=None):
+async def post_process_results(db_conn, link, media, debrid_service, url, result=None):
     # Si result es None, inicializamos el diccionario
     if result is None:
         result = {}
@@ -107,7 +107,7 @@ def post_process_results(link, media, debrid_service, url, result=None):
     result['media'] = media
     result['debrid_service'] = debrid_service
     result['playback'] = url
-    result['filename'] = getMetadata(link, media.type)
+    result['filename'] = await getMetadata(db_conn, link, media.type)
     
     # Detectar y asignar idiomas, calidad y especificaciones si no existen
     result['languages'] = detect_languages(result['filename']) if 'languages' not in result else result['languages']

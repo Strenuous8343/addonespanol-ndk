@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import re
-import shutil
+import aiosqlite
 import time
 from datetime import datetime
 import asyncio
@@ -39,9 +39,6 @@ from config import (
     DB_DECRYPTED_PATH,
     UPDATE_LOG_FILE,
     VERSION_FILE,
-    PING_URL,
-    RENDER_API_URL,
-    RENDER_AUTH_HEADER,
     DEBRID_API_KEY,
     ADMIN_PATH_DB_ENCRYPTED,
     ADMIN_PATH_DB_DECRYPTED,
@@ -86,21 +83,46 @@ async def scheduled_fichier_check():
 
 async def lifespan(app: FastAPI):
     """
-    Realiza tareas de inicialización al arrancar la aplicación.
-    Descarga, descifra y prepara la base de datos para su uso.
+    Realiza tareas de inicialización. Descarga, descifra y carga la BD en memoria.
     """
     logger.info("Iniciando tareas de arranque...")
-
+    
     await redis_client.set(FICHIER_STATUS_KEY, "up")
     logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
-
-    logger.info("Descargando base de datos...")
+    
+    logger.info("Descargando y preparando base de datos...")
     if check_and_download():
-        setup_index(DB_DECRYPTED_PATH)
+        logger.info("Base de datos en disco ('bd.tmp') creada y desencriptada.")
+        
+        logger.info("Cargando base de datos a la memoria RAM...")
+        try:
+            mem_conn = await aiosqlite.connect(":memory:")
+            disk_conn = await aiosqlite.connect(DB_DECRYPTED_PATH)
+            
+            await disk_conn.backup(mem_conn)
+            
+            await disk_conn.close()
+            
+            os.remove(DB_DECRYPTED_PATH)
+            logger.info("El archivo 'bd.tmp' ha sido eliminado del disco.")
+            
+            app.state.db_connection = mem_conn
+            logger.info("✅ Base de datos cargada y asegurada en memoria.")
+            
+        except Exception as e:
+            logger.error(f"No se pudo cargar la base de datos en memoria: {e}", exc_info=True)
+            raise e
+
+        setup_index(app.state.db_connection) # Pasamos la conexión
         logger.info("Tareas de arranque completadas.")
     else:
-        logger.error("No se pudo descargar la base de datos.")
+        logger.error("No se pudo descargar la base de datos inicial.")
+        
     yield
+    # Tareas de cierre
+    if hasattr(app.state, 'db_connection') and app.state.db_connection:
+        await app.state.db_connection.close()
+        logger.info("Conexión a la base de datos en memoria cerrada.")
     logger.info("La aplicación se está cerrando.")
 
 # Configuración de la aplicación FastAPI
@@ -187,18 +209,16 @@ async def get_manifest():
 # --- Lógica Principal del Addon ---
 
 
-async def _get_unrestricted_link(debrid_service, original_link: str, file_name=None) -> str | None:
+async def _get_unrestricted_link(db_conn, debrid_service, original_link: str, file_name=None) -> str | None:
     """
     Obtiene el enlace de descarga directa (sin restricciones) de un servicio Debrid.
     """
     debrid_name = type(debrid_service).__name__
     link_to_unrestrict = original_link
-
     try:
         if debrid_name == "RealDebrid":
-            link_to_unrestrict = await getGood1fichierlink(http_client, original_link, file_name)
+            link_to_unrestrict = await getGood1fichierlink(http_client, db_conn, original_link, file_name)
         unrestricted_data = await debrid_service.unrestrict_link(link_to_unrestrict)
-
         if not unrestricted_data:
             return None
         if debrid_name == "RealDebrid":
@@ -211,7 +231,7 @@ async def _get_unrestricted_link(debrid_service, original_link: str, file_name=N
         return None
 
 
-async def _process_and_cache_links(results_data: list, config: dict, debrid_service):
+async def _process_and_cache_links(db_conn, results_data: list, config: dict, debrid_service):
     """
     Procesa en segundo plano los enlaces, los desrestringe y los guarda en caché.
     """
@@ -228,7 +248,7 @@ async def _process_and_cache_links(results_data: list, config: dict, debrid_serv
 
     for link, data in valid_results:
         file_name = data.get('nombre_fichero', 'unknown')
-        final_link = await _get_unrestricted_link(debrid_service, link, file_name)
+        final_link = await _get_unrestricted_link(db_conn, debrid_service, link, file_name)
         if final_link:
             entry = {
                 "config": config,
@@ -242,71 +262,49 @@ async def _process_and_cache_links(results_data: list, config: dict, debrid_serv
 
 
 @app.get("/{config_str}/stream/{stream_type}/{stream_id}")
-async def get_results(config_str: str, stream_type: str, stream_id: str):
-    """
-    Busca y devuelve los streams disponibles para un item (película o serie).
-    """
+async def get_results(request: Request, config_str: str, stream_type: str, stream_id: str):
     start_time = time.time()
     stream_id = stream_id.replace(".json", "")
     config = parse_config(config_str)
+    db_conn = request.app.state.db_connection
 
     metadata_provider = TMDB(config, http_client)
     media = await metadata_provider.get_metadata(stream_id, stream_type)
-
     debrid_service = get_debrid_service(config, http_client)
-    debrid_name = type(debrid_service).__name__
-
-    fichier_status_rd = await redis_client.get(FICHIER_STATUS_KEY) or "up"
 
     if media.type == "movie":
-        search_results = await search_movies(media.id)
+        search_results = await search_movies(db_conn, media.id)
     else:
-        search_results = await search_tv_shows(media.id, media.season, media.episode)
+        search_results = await search_tv_shows(db_conn, media.id, media.season, media.episode)
 
     if not search_results:
-        logger.info(f"No se encontraron resultados para {media.type} {stream_id}. Tiempo total: {time.time() - start_time:.2f}s")
         return {"streams": []}
 
-    tasks = [get_file_info(http_client, link) for link in search_results if '1fichier' in link]
-    file_infos = await asyncio.gather(*tasks, return_exceptions=True)
-
+    file_infos = await asyncio.gather(*[get_file_info(http_client, link) for link in search_results if '1fichier' in link], return_exceptions=True)
     info_map = {info[2]: info for info in file_infos if not isinstance(info, BaseException)}
-
     results_data = []
     for link in search_results:
         data = {'link': link, 'filesize': 0, 'quality': ''}
-        if '1fichier' in link:
-            info_result = info_map.get(link)
-            if info_result:
-                _, info_data, _ = info_result
-                if info_data:
-                    data['filesize'] = info_data.get('size', 0)
-                    data['nombre_fichero'] = info_data.get('filename', '')
-                    data['quality'] = detect_quality(data['nombre_fichero'])
-            else:
-                logger.warning(f"No se pudo obtener información de 1fichier para: {link}")
+        if '1fichier' in link and (info_result := info_map.get(link)):
+            _, info_data, _ = info_result
+            if info_data:
+                data.update({'filesize': info_data.get('size', 0), 'nombre_fichero': info_data.get('filename', ''), 'quality': detect_quality(info_data.get('filename', ''))})
         results_data.append((link, data))
 
-    asyncio.create_task(
-        _process_and_cache_links(results_data, config, debrid_service)
-    )
+    asyncio.create_task(_process_and_cache_links(db_conn, results_data, config, debrid_service))
 
-    streams_unfiltered = []
-    for link, data in results_data:
-        encoded_link = encodeb64(link)
-        encoded_file_name = encodeb64(data.get('nombre_fichero', 'unknown'))
-        playback_url = f"{config['addonHost']}/playback/{config_str}/{encoded_file_name}/{encoded_link}"
-        stream = post_process_results(link, media, debrid_name, playback_url, data)
-        streams_unfiltered.append(stream)
+    stream_tasks = [post_process_results(db_conn, link, media, type(debrid_service).__name__, f"{config['addonHost']}/playback/{config_str}/{encodeb64(data.get('nombre_fichero', 'unknown'))}/{encodeb64(link)}", data) for link, data in results_data]
+    streams_unfiltered = await asyncio.gather(*stream_tasks)
 
     streams = filter_items(streams_unfiltered, media, config=config)
-    parse_to_debrid_stream(streams, config, media, debrid_name, fichier_is_up=(fichier_status_rd == "up"))
-
+    fichier_status_rd = await redis_client.get(FICHIER_STATUS_KEY) or "up"
+    parse_to_debrid_stream(streams, config, media, type(debrid_service).__name__, fichier_is_up=(fichier_status_rd == "up"))
+    
     logger.info(f"Resultados encontrados. Tiempo total: {time.time() - start_time:.2f}s")
     return {"streams": streams}
 
 
-async def _handle_playback(config_str: str, query: str, file_name) -> str:
+async def _handle_playback(request: Request, config_str: str, query: str, file_name: str) -> str:
     """
     Lógica compartida para manejar las peticiones de reproducción.
     """
@@ -326,9 +324,9 @@ async def _handle_playback(config_str: str, query: str, file_name) -> str:
     logger.info("Playback no encontrado en caché, desrestringiendo en tiempo real...")
     decoded_query = decodeb64(query)
     decoded_file_name = decodeb64(file_name)
+    db_conn = request.app.state.db_connection
     debrid_service = get_debrid_service(config, http_client)
-
-    final_link = await _get_unrestricted_link(debrid_service, decoded_query, decoded_file_name)
+    final_link = await _get_unrestricted_link(db_conn, debrid_service, decoded_query, decoded_file_name)
 
     if final_link:
         logger.info(f"Enlace desrestringido. Tiempo total: {time.time() - start_time:.2f}s")
@@ -360,14 +358,6 @@ async def actualizar_bd():
         with open(UPDATE_LOG_FILE, 'a') as file:
             file.write(f"{datetime.now()}: Actualizando contenido...\n")
 
-@crontab("* * * * *", start=not IS_DEV)
-async def ping_service():
-    """Mantiene el servicio activo en plataformas como Render haciendo un ping cada minuto."""
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.get(PING_URL)
-    except httpx.RequestError as e:
-        logger.error(f"Fallo en el ping al servicio: {e}")
 
 @app.get("/fecha")
 async def fecha_actualizacion():
@@ -403,24 +393,3 @@ async def coger_basedatos_decrypted():
     if not os.path.exists(DB_DECRYPTED_PATH):
         raise HTTPException(status_code=404, detail="Archivo no disponible.")
     return FileResponse(DB_DECRYPTED_PATH, media_type='application/octet-stream')
-
-@app.get(ADMIN_PATH_RESTART)
-async def reiniciar_servicio():
-    """
-    Reinicia el servicio en Render.com a través de su API.
-    Requiere una variable de entorno RENDER_API_KEY.
-    """
-    headers = {
-        "accept": "application/json",
-        "authorization": RENDER_AUTH_HEADER,
-        "content-type": "application/json"
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(RENDER_API_URL, json={"clearCache": "clear"}, headers=headers)
-            response.raise_for_status() # Lanza excepción para respuestas 4xx/5xx
-            return {"status": "Servicio reiniciado exitosamente", "data": response.json()}
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"Error de red al contactar Render: {e}")
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)

@@ -11,7 +11,6 @@ import requests
 import xml.etree.ElementTree as ET
 from urllib import parse
 from threading import Lock
-from utils.bd import add_flag
 from utils.crypt import decryptbd
 from utils.logger import setup_logger
 
@@ -30,6 +29,27 @@ REPO_URL = 'https://github.com/Maniac2017/Mipal2025.git'
 REPO_DIR = os.path.join(BASE_DIR, 'Mipal2025-main')
 VERSION_FILE = os.path.join(REPO_DIR, 'version.txt')
 db_lock = Lock()
+
+def add_flag(db_path):
+    """
+    Prepara la base de datos en disco: crea columnas FLAG y enlace_modificado si no existen.
+    """
+    logger.info(f"Comprobando columnas FLAG en la base de datos: {db_path}")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    try:
+        for table in ['enlaces_pelis', 'enlaces_series']:
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'FLAG' not in columns:
+                logger.info(f"Creando columna 'FLAG' en la tabla '{table}'.")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN FLAG INTEGER DEFAULT 0")
+            if 'enlace_modificado' not in columns:
+                logger.info(f"Creando columna 'enlace_modificado' en la tabla '{table}'.")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN enlace_modificado TEXT DEFAULT ''")
+        conn.commit()
+    finally:
+        conn.close()
 
 def clone_or_update_repo():
     """
