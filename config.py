@@ -24,6 +24,7 @@ RENDER_DEPLOY_HOOK = get_secret("RENDER_DEPLOY_HOOK")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH_PREFIX = "tmp" if not IS_DEV else ""
 WORKING_PATH = os.path.join(BASE_DIR, DB_PATH_PREFIX)
+DATA_PATH = os.path.join(WORKING_PATH, "Mipal2025-main")
 
 DB_ENCRYPTED_PATH = os.path.join(WORKING_PATH, "Mipal2025-main", "92b33381-pl3-42a1-bee0-bbb9d132e83f.tmp")
 DB_DECRYPTED_PATH = os.path.join(WORKING_PATH, "Mipal2025-main", "bd.tmp")

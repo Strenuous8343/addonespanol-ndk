@@ -6,6 +6,8 @@ import aiosqlite
 import time
 from datetime import datetime
 import asyncio
+import shutil
+
 
 import fakeredis
 import httpx
@@ -42,7 +44,7 @@ from config import (
     DEBRID_API_KEY,
     ADMIN_PATH_DB_ENCRYPTED,
     ADMIN_PATH_DB_DECRYPTED,
-    ADMIN_PATH_RESTART
+    DATA_PATH
 )
 
 # --- Inicialización ---
@@ -86,6 +88,8 @@ async def lifespan(app: FastAPI):
     Realiza tareas de inicialización. Descarga, descifra y carga la BD en memoria.
     """
     logger.info("Iniciando tareas de arranque...")
+    logger.info("Limpiando directorio de repositorio anterior si existe...")
+    shutil.rmtree(DATA_PATH, ignore_errors=True)
     
     await redis_client.set(FICHIER_STATUS_KEY, "up")
     logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
