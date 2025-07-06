@@ -277,8 +277,9 @@ def check_and_download():
                 logger.info("Base de datos descargada.")
                 logger.info("Descifrando base de datos...")
                 add_flag(DB_ENCRYPTED_PATH)
-                shutil.copy(DB_ENCRYPTED_PATH, DB_DECRYPTED_PATH)
-                decryptbd(DB_DECRYPTED_PATH)
+                if not up_files:
+                    shutil.copy(DB_ENCRYPTED_PATH, DB_DECRYPTED_PATH)
+                    decryptbd(DB_DECRYPTED_PATH)
                 logger.info("Base de datos descifrada.")
                 
         else:
@@ -296,6 +297,9 @@ def check_and_download():
         else:
             logger.info(f"Sin cambios en {fname}")
 
+    if up_files:
+        shutil.copy(DB_ENCRYPTED_PATH, DB_DECRYPTED_PATH)
+        decryptbd(DB_DECRYPTED_PATH)
     with open(VERSION_FILE, 'w') as f:
         json.dump(version_data, f, indent=4)
 
