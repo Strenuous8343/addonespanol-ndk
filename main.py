@@ -58,57 +58,68 @@ http_client = httpx.AsyncClient(timeout=30)
 
 async def lifespan(app: FastAPI):
     """
-    Realiza tareas de inicialización. Descarga, descifra y carga la BD en memoria.
+    Realiza tareas de inicialización usando un sistema de cerrojo (lock)
+    para ser seguro con múltiples workers.
     """
-    logger.info("Iniciando tareas de arranque...")
-    logger.info("Limpiando directorio de repositorio anterior si existe...")
-    shutil.rmtree(DATA_PATH, ignore_errors=True)
+    worker_id = os.getpid()
+    lock_file = os.path.join(os.path.dirname(DATA_PATH), 'startup.lock')
+    is_first_worker = False
 
+    try:
+        os.makedirs(os.path.dirname(lock_file), exist_ok=True)
+        os.open(lock_file, os.O_CREAT | os.O_EXCL)
+        is_first_worker = True
+    except FileExistsError:
+        logger.info(f"Worker (p{worker_id}) esperando. Otro worker ya está realizando la preparación.")
+        while not os.path.exists(DB_DECRYPTED_PATH):
+            await asyncio.sleep(0.5)
+
+    if is_first_worker:
+        logger.info(f"Worker (p{worker_id}) es el primero. Realizando la preparación del entorno...")
+        logger.info("Limpiando directorio de repositorio anterior si existe...")
+        shutil.rmtree(DATA_PATH, ignore_errors=True)
+
+        logger.info("Descargando y preparando base de datos...")
+        if not check_and_download():
+            logger.error("¡FALLO CRÍTICO! El primer worker no pudo preparar la base de datos.")
+            os.remove(lock_file)
+            sys.exit(1)
+        logger.info("✅ El primer worker ha completado la preparación.")
+    
+    logger.info(f"Worker (p{worker_id}) iniciando tareas de arranque individuales...")
     try:
         app.state.redis = redis.from_url("redis://localhost", decode_responses=True)
         await app.state.redis.ping()
-        logger.info("✅ Conexión con Redis establecida.")
-    except ConnectionError as e:
-        logger.error(f"❌ No se pudo conectar a Redis. Asegúrate de que el servidor esté en ejecución. Error: {e}")
-        sys.exit(1)
-    
-    await app.state.redis.set(FICHIER_STATUS_KEY, "up")
-    logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
-    
-    logger.info("Descargando y preparando base de datos...")
-    if check_and_download():
-        logger.info("Base de datos en disco ('bd.tmp') creada y desencriptada.")
+        logger.info(f"✅ Worker (p{worker_id}) conectado a Redis.")
         
-        logger.info("Cargando base de datos a la memoria RAM...")
-        try:
-            mem_conn = await aiosqlite.connect(":memory:")
-            disk_conn = await aiosqlite.connect(DB_DECRYPTED_PATH)
-            
-            await disk_conn.backup(mem_conn)
-            
-            await disk_conn.close()
-            
-            os.remove(DB_DECRYPTED_PATH)
-            logger.info("El archivo 'bd.tmp' ha sido eliminado del disco.")
-            
-            app.state.db_connection = mem_conn
-            logger.info("✅ Base de datos cargada y asegurada en memoria.")
-            
-        except Exception as e:
-            logger.error(f"No se pudo cargar la base de datos en memoria: {e}", exc_info=True)
-            raise e
+        mem_conn = await aiosqlite.connect(":memory:")
+        disk_conn = await aiosqlite.connect(DB_DECRYPTED_PATH)
+        
+        logger.info(f"Worker (p{worker_id}) cargando BD a la memoria RAM...")
+        await disk_conn.backup(mem_conn)
+        await disk_conn.close()
+        
+        app.state.db_connection = mem_conn
+        logger.info(f"✅ Worker (p{worker_id}) tiene la BD en memoria.")
+        
+        await setup_index(app.state.db_connection)
 
-        await setup_index(app.state.db_connection) # Pasamos la conexión
-        logger.info("Tareas de arranque completadas.")
-    else:
-        logger.error("No se pudo descargar la base de datos inicial.")
-        
+    except Exception as e:
+        logger.error(f"Worker (p{worker_id}) falló al arrancar: {e}", exc_info=True)
+        if is_first_worker:
+            os.remove(lock_file)
+        sys.exit(1)
+
     yield
-    # Tareas de cierre
+    
+    if is_first_worker and os.path.exists(lock_file):
+        logger.info(f"Primer worker (p{worker_id}) eliminando el cerrojo de arranque.")
+        os.remove(lock_file)
+        
     if hasattr(app.state, 'db_connection') and app.state.db_connection:
         await app.state.db_connection.close()
-        logger.info("Conexión a la base de datos en memoria cerrada.")
-    logger.info("La aplicación se está cerrando.")
+    logger.info(f"Worker (p{worker_id}) se está cerrando.")
+
 
 # Configuración de la aplicación FastAPI
 app = FastAPI(root_path=f"/{ROOT_PATH}" if ROOT_PATH and not ROOT_PATH.startswith("/") else ROOT_PATH, lifespan=lifespan)
@@ -372,35 +383,60 @@ async def head_playback():
 
 def reiniciar_aplicacion_local():
     """
-    Inicia una nueva instancia de la aplicación y cierra la actual de forma elegante
-    enviando una señal de terminación.
+    Reinicia la aplicación lanzando directamente Uvicorn, saltándose start.py,
+    y heredando el entorno actual (incluida la clave secreta).
     """
-    logger.info("Iniciando el proceso de auto-reinicio...")
-    comando = [sys.executable] + sys.argv
-    subprocess.Popen(comando, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    logger.info("Iniciando el proceso de auto-reinicio directo de Uvicorn...")
 
-    logger.info("Enviando señal de apagado al proceso actual...")
+    comando = [
+        sys.executable,
+        "-m", "uvicorn",
+        "main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--workers", "8"
+    ]
+
+    flags = 0
+    if sys.platform == "win32":
+        flags = subprocess.DETACHED_PROCESS
+
+    subprocess.Popen(comando, creationflags=flags)
+
+    logger.info("Enviando señal de apagado al proceso actual para un cierre limpio...")
     os.kill(os.getpid(), signal.SIGTERM)
 
 
 @crontab("*/5 * * * *", start=not IS_DEV)
 async def actualizar_bd():
     """
-    Comprueba periódicamente si hay actualizaciones tanto en el código del addon
-    como en el contenido de la base de datos.
+    Comprueba periódicamente si hay actualizaciones usando un cerrojo de Redis
+    para garantizar que solo un worker realice la comprobación.
     """
+    redis_conn = app.state.redis
+    lock_key = "addon_update_check_lock"
+
+    have_lock = await redis_conn.set(lock_key, "1", nx=True, ex=240)
+
+    if not have_lock:
+        logger.info("La comprobación de actualizaciones ya está en progreso por otro worker. Saltando.")
+        return
+
     logger.info("Iniciando comprobación periódica de actualizaciones (código y contenido)...")
     
-    resultados = await asyncio.gather(
-        comprobar_actualizacion_contenido(),
-        comprobar_actualizacion_addon()
-    )
-    
-    if any(resultados):
-        logger.info("Se ha detectado una actualización. Procediendo a reiniciar la aplicación.")
-        reiniciar_aplicacion_local()
-    else:
-        logger.info("No se encontraron nuevas actualizaciones en ninguno de los repositorios.")
+    try:
+        resultados = await asyncio.gather(
+            comprobar_actualizacion_contenido(),
+            comprobar_actualizacion_addon()
+        )
+        
+        if any(resultados):
+            logger.info("Se ha detectado una actualización. Procediendo a reiniciar la aplicación.")
+            reiniciar_aplicacion_local()
+        else:
+            logger.info("No se encontraron nuevas actualizaciones en ninguno de los repositorios.")
+    finally:
+        await redis_conn.delete(lock_key)
 
 
 
