@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import signal
 import re
 import aiosqlite
 import time
@@ -371,15 +372,15 @@ async def head_playback():
 
 def reiniciar_aplicacion_local():
     """
-    Inicia una nueva instancia de la aplicación y cierra la actual.
-    Funciona reconstruyendo el comando con el que se lanzó originalmente.
+    Inicia una nueva instancia de la aplicación y cierra la actual de forma elegante
+    enviando una señal de terminación.
     """
     logger.info("Iniciando el proceso de auto-reinicio...")
     comando = [sys.executable] + sys.argv
-
     subprocess.Popen(comando, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
-    sys.exit(0)
+    logger.info("Enviando señal de apagado al proceso actual...")
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @crontab("*/5 * * * *", start=not IS_DEV)
