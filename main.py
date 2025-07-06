@@ -11,7 +11,8 @@ import shutil
 import subprocess
 
 
-import fakeredis
+import redis.asyncio as redis
+from redis.exceptions import ConnectionError
 import httpx
 from aiocron import crontab
 from fastapi import FastAPI, HTTPException, Request
@@ -51,39 +52,8 @@ from config import (
 
 # --- Inicialización ---
 logger = setup_logger(__name__)
-redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
 # OPTIMIZADO: Crear un cliente httpx para reutilizar conexiones
 http_client = httpx.AsyncClient(timeout=30)
-
-FICHIER_STATUS_KEY = "rd_1fichier_status"
-
-async def check_real_debrid_1fichier_availability():
-    if not DEBRID_API_KEY:
-        logger.warning("No se ha configurado DEBRID_API_KEY en .env.")
-        return
-
-    url = "https://api.real-debrid.com/rest/1.0/hosts/status"
-    headers = {"Authorization": f"Bearer {DEBRID_API_KEY}"}
-    status = "up"
-    try:
-        response = await http_client.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        hosts_status = response.json()
-        
-        for host_domain, info in hosts_status.items():
-            if "1fichier" in host_domain.lower():
-                if info.get("status", "").lower() != "up":
-                    status = "down"
-                break
-    except Exception as e:
-        logger.error(f"Error al comprobar estado de hosts de RD: {e}")
-    finally:
-        await redis_client.set(FICHIER_STATUS_KEY, status, ex=1800)
-        logger.info(f"Estado de 1fichier en Real-Debrid actualizado a: '{status}'")
-
-@crontab("*/15 * * * *", start=not IS_DEV)
-async def scheduled_fichier_check():
-    await check_real_debrid_1fichier_availability()
 
 async def lifespan(app: FastAPI):
     """
@@ -92,8 +62,16 @@ async def lifespan(app: FastAPI):
     logger.info("Iniciando tareas de arranque...")
     logger.info("Limpiando directorio de repositorio anterior si existe...")
     shutil.rmtree(DATA_PATH, ignore_errors=True)
+
+    try:
+        app.state.redis = redis.from_url("redis://localhost", decode_responses=True)
+        await app.state.redis.ping()
+        logger.info("✅ Conexión con Redis establecida.")
+    except ConnectionError as e:
+        logger.error(f"❌ No se pudo conectar a Redis. Asegúrate de que el servidor esté en ejecución. Error: {e}")
+        sys.exit(1)
     
-    await redis_client.set(FICHIER_STATUS_KEY, "up")
+    await app.state.redis.set(FICHIER_STATUS_KEY, "up")
     logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
     
     logger.info("Descargando y preparando base de datos...")
@@ -162,6 +140,39 @@ if not IS_DEV:
     app.add_middleware(LogFilterMiddleware)
 
 templates = Jinja2Templates(directory="templates")
+
+FICHIER_STATUS_KEY = "rd_1fichier_status"
+
+async def check_real_debrid_1fichier_availability():
+    if not DEBRID_API_KEY:
+        logger.warning("No se ha configurado DEBRID_API_KEY en .env.")
+        return
+
+    redis_conn = app.state.redis
+    
+    url = "https://api.real-debrid.com/rest/1.0/hosts/status"
+    headers = {"Authorization": f"Bearer {DEBRID_API_KEY}"}
+    status = "up"
+    try:
+        # Usa el cliente HTTP global
+        response = await http_client.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        hosts_status = response.json()
+        
+        for host_domain, info in hosts_status.items():
+            if "1fichier" in host_domain.lower():
+                if info.get("status", "").lower() != "up":
+                    status = "down"
+                break
+    except Exception as e:
+        logger.error(f"Error al comprobar estado de hosts de RD: {e}")
+    finally:
+        await redis_conn.set(FICHIER_STATUS_KEY, status, ex=1800)
+        logger.info(f"Estado de 1fichier en Real-Debrid actualizado a: '{status}'")
+
+@crontab("*/15 * * * *", start=not IS_DEV)
+async def scheduled_fichier_check():
+    await check_real_debrid_1fichier_availability()
 
 
 # --- Endpoints de la Interfaz y Manifiesto ---
@@ -237,7 +248,7 @@ async def _get_unrestricted_link(db_conn, debrid_service, original_link: str, fi
         return None
 
 
-async def _process_and_cache_links(db_conn, results_data: list, config: dict, debrid_service):
+async def _process_and_cache_links(redis_conn, db_conn, results_data: list, config: dict, debrid_service):
     """
     Procesa en segundo plano los enlaces, los desrestringe y los guarda en caché.
     """
@@ -263,7 +274,7 @@ async def _process_and_cache_links(db_conn, results_data: list, config: dict, de
                 "filesize": data.get('filesize'),
             }
             encoded_link = encodeb64(link)
-            await redis_client.hset("final_links", encoded_link, json.dumps(entry))
+            await redis_conn.hset("final_links", encoded_link, json.dumps(entry))
         await asyncio.sleep(0)
 
 
@@ -273,6 +284,7 @@ async def get_results(request: Request, config_str: str, stream_type: str, strea
     stream_id = stream_id.replace(".json", "")
     config = parse_config(config_str)
     db_conn = request.app.state.db_connection
+    redis_conn = request.app.state.redis
 
     metadata_provider = TMDB(config, http_client)
     media = await metadata_provider.get_metadata(stream_id, stream_type)
@@ -297,13 +309,13 @@ async def get_results(request: Request, config_str: str, stream_type: str, strea
                 data.update({'filesize': info_data.get('size', 0), 'nombre_fichero': info_data.get('filename', ''), 'quality': detect_quality(info_data.get('filename', ''))})
         results_data.append((link, data))
 
-    asyncio.create_task(_process_and_cache_links(db_conn, results_data, config, debrid_service))
+    asyncio.create_task(_process_and_cache_links(redis_conn, db_conn, results_data, config, debrid_service))
 
     stream_tasks = [post_process_results(db_conn, link, media, type(debrid_service).__name__, f"{config['addonHost']}/playback/{config_str}/{encodeb64(data.get('nombre_fichero', 'unknown'))}/{encodeb64(link)}", data) for link, data in results_data]
     streams_unfiltered = await asyncio.gather(*stream_tasks)
 
     streams = filter_items(streams_unfiltered, media, config=config)
-    fichier_status_rd = await redis_client.get(FICHIER_STATUS_KEY) or "up"
+    fichier_status_rd = await redis_conn.get(FICHIER_STATUS_KEY) or "up"
     parse_to_debrid_stream(streams, config, media, type(debrid_service).__name__, fichier_is_up=(fichier_status_rd == "up"))
     
     logger.info(f"Resultados encontrados. Tiempo total: {time.time() - start_time:.2f}s")
@@ -320,7 +332,7 @@ async def _handle_playback(request: Request, config_str: str, query: str, file_n
     config = parse_config(config_str)
     start_time = time.time()
 
-    cached_data_json = await redis_client.hget("final_links", query)
+    cached_data_json = await request.app.state.redis.hget("final_links", query)
     if cached_data_json:
         cached_data = json.loads(cached_data_json)
         if cached_data.get("config") == config:
@@ -345,7 +357,7 @@ async def _handle_playback(request: Request, config_str: str, query: str, file_n
 @app.get("/playback/{config_str}/{file_name}/{query}")
 async def get_playback(request: Request, config_str: str, file_name, query: str):
     """Redirige al stream final (GET)."""
-    final_url = await _handle_playback(config_str, query, file_name)
+    final_url = await _handle_playback(request, config_str, query, file_name)
     return RedirectResponse(url=final_url, status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 
