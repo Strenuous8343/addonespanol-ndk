@@ -30,8 +30,3 @@ DB_DECRYPTED_PATH = os.path.join(WORKING_PATH, "Mipal2025-main", "bd.tmp")
 UPDATE_LOG_FILE = os.path.join(WORKING_PATH, "actualizar.txt")
 VERSION_FILE = os.path.join(WORKING_PATH, "version.txt")
 
-
-PING_URL = 'https://addonespanol.onrender.com/'
-RENDER_API_URL = RENDER_DEPLOY_HOOK
-RENDER_AUTH_HEADER = f"Bearer {RENDER_API_KEY}"
-
