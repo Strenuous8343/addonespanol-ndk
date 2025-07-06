@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
             logger.error(f"No se pudo cargar la base de datos en memoria: {e}", exc_info=True)
             raise e
 
-        setup_index(app.state.db_connection) # Pasamos la conexión
+        await setup_index(app.state.db_connection) # Pasamos la conexión
         logger.info("Tareas de arranque completadas.")
     else:
         logger.error("No se pudo descargar la base de datos inicial.")
@@ -337,7 +337,7 @@ async def _handle_playback(request: Request, config_str: str, query: str, file_n
 
 
 @app.get("/playback/{config_str}/{file_name}/{query}")
-async def get_playback(config_str: str, file_name, query: str):
+async def get_playback(request: Request, config_str: str, file_name, query: str):
     """Redirige al stream final (GET)."""
     final_url = await _handle_playback(config_str, query, file_name)
     return RedirectResponse(url=final_url, status_code=status.HTTP_301_MOVED_PERMANENTLY)
