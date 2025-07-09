@@ -193,18 +193,35 @@ async def _get_unrestricted_link(debrid_service, original_link: str, file_name=N
     """
     debrid_name = type(debrid_service).__name__
     link_to_unrestrict = original_link
-
     try:
         if debrid_name == "RealDebrid":
             link_to_unrestrict = await getGood1fichierlink(http_client, original_link, file_name)
+        
         unrestricted_data = await debrid_service.unrestrict_link(link_to_unrestrict)
-
+        
         if not unrestricted_data:
             return None
+
         if debrid_name == "RealDebrid":
+            http_folder = debrid_service.config.get('debridHttp')
+            
+            if http_folder:
+                unrestricted_filename = unrestricted_data.get('filename')
+                
+                if unrestricted_filename:
+                    folder_link = await debrid_service.find_link_in_folder(http_folder, unrestricted_filename)
+                    
+                    if folder_link:
+                        return folder_link
+                else:
+                    logger.warning("No se recibió 'filename' de la API de RD. Se usará el enlace por defecto.")
+            
+            logger.info("Devolviendo el enlace de descarga estándar de la API de Real-Debrid.")
             return unrestricted_data.get('download')
+
         if debrid_name == "AllDebrid":
             return unrestricted_data.get('data', {}).get('link')
+            
         return original_link
     except Exception as e:
         logger.error(f"Error al desrestringir el enlace {original_link} con {debrid_name}: {e}")
