@@ -19,7 +19,7 @@ from starlette import status
 
 from debrid.get_debrid_service import get_debrid_service
 from metadata.tmdb import TMDB
-from utils.actualizarbd import actualizarbasesdatos
+from utils.actualizarbd import comprobar_actualizacion_contenido, comprobar_actualizacion_addon
 from utils.bd import (setup_index, getGood1fichierlink,
                       search_movies, search_tv_shows)
 from utils.cargarbd import check_and_download
@@ -94,6 +94,11 @@ async def lifespan(app: FastAPI):
 
     await redis_client.set(FICHIER_STATUS_KEY, "up")
     logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
+
+    logger.info("Estableciendo versión inicial de los componentes...")
+    await comprobar_actualizacion_contenido()
+    await comprobar_actualizacion_addon()
+    logger.info("Ficheros de versión inicializados.")
 
     logger.info("Descargando base de datos...")
     if check_and_download():
@@ -373,12 +378,42 @@ async def head_playback():
 
 # --- Tareas Programadas (Crons) y Rutas de Administración ---
 
+async def trigger_render_restart():
+    """Llama al deploy hook de Render para reiniciar el servicio."""
+    if not RENDER_API_URL or not RENDER_AUTH_HEADER.startswith("Bearer"):
+        logger.warning("Las variables de entorno de Render no están configuradas. No se puede reiniciar.")
+        return False
+    
+    logger.info("Activando el hook de reinicio de Render...")
+    headers = {"accept": "application/json", "authorization": RENDER_AUTH_HEADER, "content-type": "application/json"}
+    try:
+        response = await http_client.post(RENDER_API_URL, json={"clearCache": "clear"}, headers=headers)
+        response.raise_for_status()
+        logger.info("✅ Hook de reinicio de Render activado exitosamente.")
+        return True
+    except httpx.RequestError as e:
+        logger.error(f"Error de red al contactar Render: {e}")
+        return False
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error en la respuesta de Render ({e.response.status_code}): {e.response.text}")
+        return False
+
 @crontab("*/5 * * * *", start=not IS_DEV)
 async def actualizar_bd():
-    """Tarea programada para actualizar la base de datos cada 5 minutos."""
-    if await actualizarbasesdatos():
-        with open(UPDATE_LOG_FILE, 'a') as file:
-            file.write(f"{datetime.now()}: Actualizando contenido...\n")
+    """
+    Tarea programada que comprueba si hay nuevas versiones y reinicia el servicio si es necesario.
+    """
+    contenido_actualizado = await comprobar_actualizacion_contenido()
+    addon_actualizado = await comprobar_actualizacion_addon()
+
+    # Si se detecta cualquier actualización, se reinicia el servicio
+    if contenido_actualizado or addon_actualizado:
+        if contenido_actualizado:
+            logger.info("Tarea programada: Nueva versión de CONTENIDO detectada.")
+        if addon_actualizado:
+            logger.info("Tarea programada: Nueva versión de ADDON detectada.")
+        logger.info("Reiniciando...")
+        await trigger_render_restart()
 
 @crontab("* * * * *", start=not IS_DEV)
 async def ping_service():
@@ -426,21 +461,8 @@ async def coger_basedatos_decrypted():
 
 @app.get(ADMIN_PATH_RESTART)
 async def reiniciar_servicio():
-    """
-    Reinicia el servicio en Render.com a través de su API.
-    Requiere una variable de entorno RENDER_API_KEY.
-    """
-    headers = {
-        "accept": "application/json",
-        "authorization": RENDER_AUTH_HEADER,
-        "content-type": "application/json"
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(RENDER_API_URL, json={"clearCache": "clear"}, headers=headers)
-            response.raise_for_status() # Lanza excepción para respuestas 4xx/5xx
-            return {"status": "Servicio reiniciado exitosamente", "data": response.json()}
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"Error de red al contactar Render: {e}")
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    """Reinicia el servicio en Render.com a través de su API."""
+    if await trigger_render_restart():
+        return {"status": "Servicio reiniciado exitosamente"}
+    else:
+        raise HTTPException(status_code=500, detail="Fallo al reiniciar el servicio. Revisa los logs.")
