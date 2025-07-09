@@ -71,6 +71,14 @@
                                 <input type="text" name="debrid-api" id="debrid-api" value="" autocomplete="debrid-api" class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600" placeholder="API Key de Debrid">
                             </div>
                         </div>
+                        <!-- Información adicional de Debrid (HTTP Folder) -->
+                        <div class="sm:col-span-3">
+                            <label for="debrid-api" class="block text-sm font-medium mb-2 dark:text-white mt-5">Debrid HTTP Folder</label>
+                            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Introduce tu url de http de Debrid.</p>
+                            <div class="mt-2">
+                                <input type="text" name="debrid-http" id="debrid-http" value="" autocomplete="debrid-http" class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600" placeholder="HTTP de Debrid">
+                            </div>
+                        </div>
                     </div>
                     <!-- TMDB Information Section -->
                     <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white mt-5">TMDB Information</h2>
@@ -128,33 +136,6 @@
                                     <input type="checkbox" id="unknown" name="quality" class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
                                     <label for="unknown" class="ml-2 text-sm dark:text-white">Unknown</label>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Catalog Selector -->
-                    <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white mt-5">Seleccionar catálogos</h2>
-                    <div id="catalogs-container" class="mt-5 space-y-10">
-                        <div class="sm:col-span-3">
-                            <div class="flex items-center justify-between mb-4">
-                                <label for="id_catalogos" class="block text-sm font-medium mb-2 dark:text-white">Selecciona los catálogos:</label>
-                                <button type="button" onclick="toggleSelectAll()" class="text-sm font-medium text-blue-600 dark:text-blue-400 mb-4">Seleccionar todos</button>
-                            </div>
-                            <div id="catalog-list" class="space-y-2">
-                                {% for catalog in catalogs %}
-                                <div class="dark:bg-slate-900 mb-2 py-3 px-4 select-none cursor-pointer draggable-item" draggable="true" id="catalog-{{ catalog.id }}" data-id="{{ catalog.id }}" data-index="{{ loop.index0 }}">
-                                    <input class="mb-2" type="checkbox" id="{{ catalog.id }}" name="catalogos" value="{{ catalog.id }}">
-                                    <label for="{{ catalog.id }}" class="dark:text-white ml-5">
-                                        {% if catalog.type == 'movie' %}
-                                        Películas
-                                        {% elif catalog.type == 'series' %}
-                                        Series
-                                        {% else %}
-                                        {{ catalog.type }}
-                                        {% endif %}
-                                        - {{ catalog.name }}
-                                    </label>
-                                </div>
-                                {% endfor %}
                             </div>
                         </div>
                     </div>
