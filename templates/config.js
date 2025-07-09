@@ -5,6 +5,7 @@ function loadData() {
         data = atob(data[1]);
         data = JSON.parse(data);
         document.getElementById('debrid-api').value = data.debridKey;
+        document.getElementById('debrid-http').value = data.debridHttp;
         document.getElementById('tmdb-api').value = data.tmdbApi;
         document.getElementById('service').value = data.service;
         if(data.maxSize) {
@@ -24,9 +25,9 @@ loadData();
 function getLink(method) {
     const addonHost = new URL(window.location.href).protocol.replace(':', '') + "://" + new URL(window.location.href).host;
     const debridApi = document.getElementById('debrid-api').value;
+    const debridHttp = document.getElementById('debrid-http').value;
     const tmdbApi = document.getElementById('tmdb-api').value;
     const service = document.getElementById('service').value;
-    let selectedCatalogs = getCheckedOrder();
     const maxSize = document.getElementById('maxSize').value;
     
     let selectedQualityExclusion = [];
@@ -41,12 +42,12 @@ function getLink(method) {
         addonHost,
         service,
         debridKey: debridApi,
+        debridHttp: debridHttp,
         debrid: 'true',
         metadataProvider: 'cinemeta',
         tmdbApi,
         maxSize,
-        selectedQualityExclusion,
-        selectedCatalogs
+        selectedQualityExclusion
     };
 
     if ((debridApi === '') || (tmdbApi === '') || (maxSize === '')) {
@@ -72,74 +73,4 @@ function getLink(method) {
             alert('Error copying link to clipboard');
         });
     }
-}
-
-function toggleCheckbox(id) {
-    const checkbox = document.getElementById(id);
-    checkbox.checked = !checkbox.checked;
-}
-
-function toggleSelectAll() {
-    const checkboxes = document.querySelectorAll('input[name="catalogos"]');
-    const allChecked = Array.from(checkboxes).every(checkbox => checkbox.checked);
-    checkboxes.forEach(checkbox => {
-        checkbox.checked = !allChecked;
-    });
-}
-
-
-// Catalog Drag n Drop
-const catalogList = document.getElementById('catalog-list');
-
-let draggedItem = null;
-
-// Event listener para iniciar el arrastre
-catalogList.addEventListener('dragstart', (e) => {
-    draggedItem = e.target;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', e.target.outerHTML);
-    setTimeout(() => e.target.classList.add('hidden'), 0);
-});
-
-// Event listener para permitir soltar
-catalogList.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    const draggingOver = e.target.closest('.draggable-item');
-    if (draggingOver && draggingOver !== draggedItem) {
-        const bounding = draggingOver.getBoundingClientRect();
-        const offset = e.clientY - bounding.top;
-        if (offset > bounding.height / 2) {
-            catalogList.insertBefore(draggingOver, draggedItem);
-        } else {
-            catalogList.insertBefore(draggedItem, draggingOver);
-        }
-    }
-});
-
-// Event listener para soltar el elemento
-catalogList.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const dropIndex = [...catalogList.children].indexOf(draggedItem);
-    draggedItem.classList.remove('hidden');
-    draggedItem = null;
-});
-
-// Event listener para limpiar el estado si el arrastre es cancelado
-catalogList.addEventListener('dragend', () => {
-    if (draggedItem) draggedItem.classList.remove('hidden');
-    draggedItem = null;
-});
-
-// Función para obtener el nuevo orden
-function getOrder() {
-    return [...catalogList.children].map(item => item.dataset.id);
-}
-
-// Función para obtener el nuevo orden de los marcados
-function getCheckedOrder() {
-    return [...catalogList.children]
-        .filter(item => item.querySelector('input[type="checkbox"]').checked)
-        .map(item => item.dataset.id);
 }
