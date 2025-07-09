@@ -46,7 +46,8 @@ from config import (
     DEBRID_API_KEY,
     ADMIN_PATH_DB_ENCRYPTED,
     ADMIN_PATH_DB_DECRYPTED,
-    ADMIN_PATH_RESTART
+    ADMIN_PATH_RESTART,
+    WORKING_PATH
 )
 
 # --- Inicialización ---
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
     Descarga, descifra y prepara la base de datos para su uso.
     """
     logger.info("Iniciando tareas de arranque...")
+    os.makedirs(WORKING_PATH, exist_ok=True)
 
     await redis_client.set(FICHIER_STATUS_KEY, "up")
     logger.info(f"Estado inicial de 1fichier establecido a 'up' por defecto.")
