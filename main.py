@@ -9,6 +9,7 @@ import asyncio
 
 import fakeredis
 import httpx
+import requests
 from aiocron import crontab
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,6 +99,8 @@ async def lifespan(app: FastAPI):
     if check_and_download():
         setup_index(DB_DECRYPTED_PATH)
         logger.info("Tareas de arranque completadas.")
+        if not IS_DEV:
+            requests.get('https://ndkcatalogs.myblacknass.synology.me/getData')
     else:
         logger.error("No se pudo descargar la base de datos.")
     yield
