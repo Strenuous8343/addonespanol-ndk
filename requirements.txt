@@ -9,4 +9,3 @@ python-dotenv
 aiosqlite
 pycryptodome
 httpx
-fakeredis
