@@ -1,43 +1,31 @@
-import subprocess
 import json
 import os
 import sys
 
 _secrets = None
+DECRYPTED_SECRETS_VAR = "DECRYPTED_SECRETS"
 
 def load_secrets():
     """
-    Carga la clave privada de age desde la variable de entorno SOPS_AGE_KEY,
-    descifra secrets.json usando sops y carga los secretos en memoria.
+    Carga los secretos desde la variable de entorno 'DECRYPTED_SECRETS'.
+    Esta variable es establecida por 'start.py' en el primer arranque.
     """
     global _secrets
     if _secrets is not None:
-        return _secrets
+        return
 
-    age_key = os.environ.get("SOPS_AGE_KEY")
+    decrypted_json_string = os.environ.get(DECRYPTED_SECRETS_VAR)
 
-    if not age_key:
-        print("❌ Error: La variable de entorno 'SOPS_AGE_KEY' no está definida.", file=sys.stderr)
-        print("Este script debe ser ejecutado a través de 'start.py'.", file=sys.stderr)
+    if not decrypted_json_string:
+        print(f"❌ Error: La variable de entorno '{DECRYPTED_SECRETS_VAR}' no está definida.", file=sys.stderr)
+        print("Este script debe ser ejecutado a través de 'start.py' en el primer inicio.", file=sys.stderr)
         sys.exit(1)
-
+    
     try:
-        env = os.environ.copy()
-        env["SOPS_AGE_KEY"] = age_key.strip()
-
-        result = subprocess.run(
-            ['sops', '-d', 'secrets.json'],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env
-        )
-
-        _secrets = json.loads(result.stdout)
-        print("✅ Secretos cargados en memoria correctamente.")
-        return _secrets
-    except Exception as e:
-        print(f"❌ Ocurrió un error al cargar los secretos: {e}", file=sys.stderr)
+        _secrets = json.loads(decrypted_json_string)
+        print("✅ Secretos cargados en memoria desde el entorno correctamente.")
+    except json.JSONDecodeError as e:
+        print(f"❌ Ocurrió un error al parsear los secretos desde el entorno: {e}", file=sys.stderr)
         sys.exit(1)
 
 

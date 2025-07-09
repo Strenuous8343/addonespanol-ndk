@@ -5,14 +5,18 @@ import os
 import xml.etree.ElementTree as ET
 from utils.logger import setup_logger
 
+from config import (
+    WORKING_PATH
+)
+
 logger = setup_logger(__name__)
 
 # --- Constantes para el CONTENIDO (Base de Datos) ---
-CONTENIDO_TIMESTAMP_FILE = 'contenido_last_update.txt'
+CONTENIDO_TIMESTAMP_FILE = os.path.join(WORKING_PATH,'contenido_last_update.txt')
 CONTENIDO_REPO_URL = "https://github.com/Maniac2017/Mipal2025/commits/main.atom"
 
 # --- Constantes para el ADDON (Código) ---
-ADDON_TIMESTAMP_FILE = 'addon_last_update.txt'
+ADDON_TIMESTAMP_FILE = os.path.join(WORKING_PATH,'addon_last_update.txt')
 ADDON_REPO_URL = "https://github.com/Strenuous8343/addonespanol-ndk/commits/deploy_pc.atom"
 
 async def _comprobar_remoto(url_atom, fichero_timestamp, tipo_contenido):
