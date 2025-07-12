@@ -107,7 +107,7 @@ async def lifespan(app: FastAPI):
         setup_index(DB_DECRYPTED_PATH)
         logger.info("Tareas de arranque completadas.")
         if not IS_DEV:
-            requests.get('https://ndkcatalogs.myblacknass.synology.me/getData')
+            requests.get('https://ndkcatalogs.myblacknass.synology.me/updatedb')
     else:
         logger.error("No se pudo descargar la base de datos.")
     yield
