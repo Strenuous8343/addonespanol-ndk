@@ -15,7 +15,7 @@ CONTENIDO_REPO_URL = "https://github.com/Maniac2017/Mipal2025/commits/main.atom"
 
 # --- Constantes para el ADDON (Código) ---
 ADDON_TIMESTAMP_FILE = os.path.join(WORKING_PATH,'addon_last_update.txt')
-ADDON_REPO_URL = "https://github.com/Strenuous8343/addonespanol-ndk/commits/deploy_pc.atom"
+ADDON_REPO_URL = "https://github.com/Strenuous8343/addonespanol-ndk/commits/main.atom"
 
 async def _comprobar_remoto(url_atom, fichero_timestamp, tipo_contenido):
     """Función genérica para comprobar un repositorio y su fichero de timestamp."""
